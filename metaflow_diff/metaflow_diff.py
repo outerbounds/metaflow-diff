@@ -103,8 +103,7 @@ def run_op(runspec, op, op_args):
     finally:
         if tmp:
             if os.path.exists(tmp.name):
-                pass
-                # shutil.rmtree(tmp.name)
+                shutil.rmtree(tmp.name)
 
 
 @click.group()
