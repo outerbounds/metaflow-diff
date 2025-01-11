@@ -8,6 +8,11 @@
 4. Continue editing code
 5. Run `metaflow-diff diff HelloFlow/5` to see how the code has changed in the given execution 💡
 
+> [!NOTE]
+> `metaflow-diff` displays differences only for files associated with the specified run.
+> Any new files added to the current working directory that are not part of the run will
+> be excluded from the output.
+
 ## Commands
 
 ```

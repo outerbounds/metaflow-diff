@@ -53,9 +53,13 @@ def op_patch(tmpdir, dst=None):
             out = out.replace("+++ a/./", "+++ a/")
             f.write(out)
     echo(f"Patch saved in *{dst}*")
-    this = os.path.basename(os.getcwd())
+    path = run(['git', 'rev-parse', '--show-prefix'], text=True, stdout=PIPE).stdout.strip()
+    if path:
+        diropt = f" --directory={path.rstrip('/')}"
+    else:
+        diropt = ""
     echo("Apply the patch by running:")
-    echo_always(f"git apply --verbose --directory={this} {dst}", highlight=True, bold=True, err=True)
+    echo_always(f"git apply --verbose{diropt} {dst}", highlight=True, bold=True, err=True)
 
 def run_op(runspec, op, op_args):
     try:
