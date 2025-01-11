@@ -1,15 +1,13 @@
 #!/usr/bin/env python
-import sys
 import os
 import shutil
+import sys
+from subprocess import PIPE, run
 from tempfile import TemporaryDirectory
-from subprocess import call, run, PIPE
-import os
 
-from metaflow import namespace, Run
-from metaflow.cli import echo_always
 import click
-
+from metaflow import Run, namespace
+from metaflow.cli import echo_always
 
 EXCLUSIONS = [
     "metaflow/",
@@ -20,34 +18,93 @@ EXCLUSIONS = [
 ]
 
 
-def git_diff(tmpdir, output=False):
-    for dirpath, dirnames, filenames in os.walk(tmpdir):
-        for fname in filenames:
-            rel = os.path.relpath(dirpath, tmpdir)
-            gitpath = os.path.join(rel, fname)
-            if os.path.exists(gitpath):
-                cmd = [
-                    "git",
-                    "diff",
-                    "--no-index",
-                    gitpath,
-                    os.path.join(dirpath, fname),
-                ]
-                if output:
-                    yield run(cmd, text=True, stdout=PIPE).stdout
-                else:
-                    run(cmd)
-            else:
-                echo(f"❗ {gitpath} not in the Git repo, skipping")
-
-
 def echo(line):
     echo_always(line, err=True, fg="magenta")
 
 
+def extract_code_package(runspec, exclusions):
+    try:
+        namespace(None)
+        run = Run(runspec)
+        echo(f"✅  Run *{runspec}* found, downloading code..")
+    except:
+        echo(f"❌  Run **{runspec}** not found")
+        sys.exit(1)
+
+    if run.code is None:
+        echo(
+            f"❌  Run **{runspec}** doesn't have a code package. Maybe it's a local run?"
+        )
+        sys.exit(1)
+
+    tar = run.code.tarball
+    members = [
+        m for m in tar.getmembers() if not any(m.name.startswith(x) for x in exclusions)
+    ]
+
+    tmp = TemporaryDirectory()
+    tar.extractall(tmp.name, members)
+    return tmp
+
+
+def perform_diff(source_dir, target_dir, output=False):
+    diffs = []
+    for dirpath, dirnames, filenames in os.walk(source_dir):
+        for fname in filenames:
+            source_file = os.path.join(dirpath, fname)
+            rel_path = os.path.relpath(source_file, source_dir)
+            target_file = os.path.join(target_dir, rel_path)
+
+            if os.path.exists(target_file):
+                cmd = [
+                    "git",
+                    "diff",
+                    "--no-index",
+                    "--exit-code",
+                    "--color",
+                    source_file,
+                    target_file,
+                ]
+                result = run(cmd, text=True, stdout=PIPE, stderr=PIPE)
+                if result.returncode == 0:
+                    echo(f"✅ {rel_path} is identical, skipping")
+                    continue
+
+                if output:
+                    diffs.append(result.stdout)
+                else:
+                    run(["less", "-R"], input=result.stdout, text=True)
+            else:
+                echo(f"❗ {rel_path} not in the target directory, skipping")
+    return diffs if output else None
+
+
+def run_op(runspec, op, op_args):
+    tmp = None
+    try:
+        tmp = extract_code_package(runspec, EXCLUSIONS)
+        op(tmp.name, **op_args)
+    finally:
+        if tmp and os.path.exists(tmp.name):
+            shutil.rmtree(tmp.name)
+
+
+def run_op_diff_runs(source_run, target_run):
+    source_tmp = None
+    target_tmp = None
+    try:
+        source_tmp = extract_code_package(source_run, EXCLUSIONS)
+        target_tmp = extract_code_package(target_run, EXCLUSIONS)
+        perform_diff(source_tmp.name, target_tmp.name)
+    finally:
+        if source_tmp and os.path.exists(source_tmp.name):
+            shutil.rmtree(source_tmp.name)
+        if target_tmp and os.path.exists(target_tmp.name):
+            shutil.rmtree(target_tmp.name)
+
+
 def op_diff(tmpdir):
-    for _ in git_diff(tmpdir):
-        pass
+    perform_diff(tmpdir, os.getcwd())
 
 
 def op_pull(tmpdir, dst=None):
@@ -59,8 +116,9 @@ def op_pull(tmpdir, dst=None):
 
 
 def op_patch(tmpdir, dst=None):
+    diffs = perform_diff(tmpdir, os.getcwd(), output=True)
     with open(dst, "w") as f:
-        for out in git_diff(tmpdir, output=True):
+        for out in diffs:
             out = out.replace(tmpdir, "/.")
             out = out.replace("+++ b/./", "+++ b/")
             out = out.replace("--- b/./", "--- b/")
@@ -81,34 +139,6 @@ def op_patch(tmpdir, dst=None):
     )
 
 
-def run_op(runspec, op, op_args):
-    try:
-        namespace(None)
-        run = Run(runspec)
-        echo(f"✅  Run *{runspec}* found, downloading code..")
-    except:
-        echo(f"❌  Run **{runspec}** not found")
-        sys.exit(1)
-    if run.code is None:
-        echo(
-            f"❌  Run **{runspec}** doesn't have a code package. Maybe it's a local run?"
-        )
-        sys.exit(1)
-    tar = run.code.tarball
-    members = []
-    for m in tar.getmembers():
-        if not any(m.name.startswith(x) for x in EXCLUSIONS):
-            members.append(m)
-    tmp = None
-    try:
-        tmp = TemporaryDirectory()
-        tar.extractall(tmp.name, members)
-        op(tmp.name, **op_args)
-    finally:
-        if tmp and os.path.exists(tmp.name):
-            shutil.rmtree(tmp.name)
-
-
 @click.group()
 def cli():
     pass
@@ -122,6 +152,16 @@ def diff(metaflow_run=None):
     the given Metaflow run, e.g. HelloFlow/3
     """
     run_op(metaflow_run, op_diff, {})
+
+
+@cli.command()
+@click.argument("source_run")
+@click.argument("target_run")
+def diff_runs(source_run, target_run):
+    """
+    Show a 'git diff' between two Metaflow runs, e.g. HelloFlow/3 (source) and HelloFlow/4 (target)
+    """
+    run_op_diff_runs(source_run, target_run)
 
 
 @cli.command()
@@ -150,3 +190,7 @@ def patch(metaflow_run, file=None):
     if file is None:
         file = metaflow_run.lower().replace("/", "_") + ".patch"
     run_op(metaflow_run, op_patch, {"dst": file})
+
+
+if __name__ == "__main__":
+    cli()

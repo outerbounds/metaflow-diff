@@ -34,4 +34,8 @@ metaflow-diff patch --file my.patch HelloFlow/5
 Produce a patch file that, if applied, changes the code in the current
 working directory to match that of the run.
 
+```
+metaflow-diff diff-runs HelloFlow/5 HelloFlow/6
+```
 
+Show diff between the two given runs.
