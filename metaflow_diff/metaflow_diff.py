@@ -25,14 +25,16 @@ def git_diff(tmpdir, output=False):
         for fname in filenames:
             rel = os.path.relpath(dirpath, tmpdir)
             gitpath = os.path.join(rel, fname)
+            if sys.stdout.isatty():
+                color = []
+            else:
+                color = ["--no-color"]
             if os.path.exists(gitpath):
-                cmd = [
-                    "git",
-                    "diff",
-                    "--no-index",
-                    gitpath,
-                    os.path.join(dirpath, fname),
-                ]
+                cmd = (
+                    ["git", "diff"]
+                    + color
+                    + ["--no-index", gitpath, os.path.join(dirpath, fname)]
+                )
                 if output:
                     yield run(cmd, text=True, stdout=PIPE).stdout
                 else:
