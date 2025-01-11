@@ -55,16 +55,20 @@ def perform_diff(source_dir, target_dir, output=False):
             rel_path = os.path.relpath(source_file, source_dir)
             target_file = os.path.join(target_dir, rel_path)
 
+            if sys.stdout.isatty():
+                color = ["--color"]
+            else:
+                color = ["--no-color"]
+
             if os.path.exists(target_file):
-                cmd = [
-                    "git",
-                    "diff",
-                    "--no-index",
-                    "--exit-code",
-                    "--color",
-                    source_file,
-                    target_file,
-                ]
+                cmd = (
+                    ["git", "diff", "--no-index", "--exit-code"]
+                    + color
+                    + [
+                        source_file,
+                        target_file,
+                    ]
+                )
                 result = run(cmd, text=True, stdout=PIPE, stderr=PIPE)
                 if result.returncode == 0:
                     echo(f"✅ {rel_path} is identical, skipping")
