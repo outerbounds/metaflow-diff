@@ -24,17 +24,21 @@ def git_diff(tmpdir, output=False):
     for dirpath, dirnames, filenames in os.walk(tmpdir):
         for fname in filenames:
             rel = os.path.relpath(dirpath, tmpdir)
-            cmd = [
-                "git",
-                "diff",
-                "--no-index",
-                os.path.join(rel, fname),
-                os.path.join(dirpath, fname),
-            ]
-            if output:
-                yield run(cmd, text=True, stdout=PIPE).stdout
+            gitpath = os.path.join(rel, fname)
+            if os.path.exists(gitpath):
+                cmd = [
+                    "git",
+                    "diff",
+                    "--no-index",
+                    gitpath,
+                    os.path.join(dirpath, fname),
+                ]
+                if output:
+                    yield run(cmd, text=True, stdout=PIPE).stdout
+                else:
+                    run(cmd)
             else:
-                run(cmd)
+                echo(f"❗ {gitpath} not in the Git repo, skipping")
 
 
 def echo(line):
@@ -101,9 +105,8 @@ def run_op(runspec, op, op_args):
         tar.extractall(tmp.name, members)
         op(tmp.name, **op_args)
     finally:
-        if tmp:
-            if os.path.exists(tmp.name):
-                shutil.rmtree(tmp.name)
+        if tmp and os.path.exists(tmp.name):
+            shutil.rmtree(tmp.name)
 
 
 @click.group()
