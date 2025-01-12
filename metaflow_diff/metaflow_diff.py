@@ -47,31 +47,41 @@ def extract_code_package(runspec, exclusions):
     return tmp
 
 
-def perform_diff(source_dir, target_dir, output=False):
+def perform_diff(source_dir, target_dir=None, output=False):
+    if target_dir is None:
+        target_dir = os.getcwd()
+
     diffs = []
     for dirpath, dirnames, filenames in os.walk(source_dir):
         for fname in filenames:
+            # NOTE: the paths below need to be set up carefully
+            # for the `patch` command to work. Better not to touch
+            # the directories below. If you must, test that patches
+            # work after you changes.
+            #
+            # target_file is the git repo in the current working directory
+            rel = os.path.relpath(dirpath, source_dir)
+            target_file = os.path.join(rel, fname)
+            # source_file is the run file loaded in a tmp directory
             source_file = os.path.join(dirpath, fname)
-            rel_path = os.path.relpath(source_file, source_dir)
-            target_file = os.path.join(target_dir, rel_path)
 
-            if sys.stdout.isatty():
+            if sys.stdout.isatty() and not output:
                 color = ["--color"]
             else:
                 color = ["--no-color"]
 
-            if os.path.exists(target_file):
+            if os.path.exists(os.path.join(target_dir, target_file)):
                 cmd = (
                     ["git", "diff", "--no-index", "--exit-code"]
                     + color
                     + [
-                        source_file,
                         target_file,
+                        source_file,
                     ]
                 )
-                result = run(cmd, text=True, stdout=PIPE, stderr=PIPE)
+                result = run(cmd, text=True, stdout=PIPE, cwd=target_dir)
                 if result.returncode == 0:
-                    echo(f"✅ {rel_path} is identical, skipping")
+                    echo(f"✅ {target_file} is identical, skipping")
                     continue
 
                 if output:
@@ -79,7 +89,7 @@ def perform_diff(source_dir, target_dir, output=False):
                 else:
                     run(["less", "-R"], input=result.stdout, text=True)
             else:
-                echo(f"❗ {rel_path} not in the target directory, skipping")
+                echo(f"❗ {target_file} not in the target directory, skipping")
     return diffs if output else None
 
 
@@ -108,7 +118,7 @@ def run_op_diff_runs(source_run, target_run):
 
 
 def op_diff(tmpdir):
-    perform_diff(tmpdir, os.getcwd())
+    perform_diff(tmpdir)
 
 
 def op_pull(tmpdir, dst=None):
@@ -120,7 +130,7 @@ def op_pull(tmpdir, dst=None):
 
 
 def op_patch(tmpdir, dst=None):
-    diffs = perform_diff(tmpdir, os.getcwd(), output=True)
+    diffs = perform_diff(tmpdir, output=True)
     with open(dst, "w") as f:
         for out in diffs:
             out = out.replace(tmpdir, "/.")
