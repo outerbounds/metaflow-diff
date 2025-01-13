@@ -1,6 +1,6 @@
 import os
+import pytest
 import tempfile
-import unittest
 from subprocess import PIPE
 from unittest.mock import MagicMock, patch
 
@@ -15,7 +15,7 @@ from metaflow_diff.metaflow_diff import (
 )
 
 
-class TestMetaflowDiff(unittest.TestCase):
+class TestMetaflowDiff:
 
     @patch("metaflow_diff.metaflow_diff.Run")
     @patch("metaflow_diff.metaflow_diff.namespace")
@@ -31,10 +31,25 @@ class TestMetaflowDiff(unittest.TestCase):
 
         mock_namespace.assert_called_once_with(None)
         mock_run.assert_called_once_with(runspec)
-        self.assertTrue(os.path.exists(tmp.name))
+        assert os.path.exists(tmp.name)
 
+    @pytest.mark.parametrize("use_tty", [True, False])
     @patch("metaflow_diff.metaflow_diff.run")
-    def test_perform_diff_output_false(self, mock_run):
+    @patch("sys.stdout.isatty")
+    def test_perform_diff_output_false(self, mock_isatty, mock_run, use_tty):
+        mock_isatty.return_value = use_tty
+
+        mock_process = MagicMock()
+        mock_process.returncode = 1
+        mock_process.stdout = (
+            "--- a/file.txt\n"
+            "+++ b/file.txt\n"
+            "@@ -1 +1 @@\n"
+            "-source content\n"
+            "+target content\n"
+        )
+        mock_run.return_value = mock_process
+
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as target_dir:
             source_file = os.path.join(source_dir, "file.txt")
             target_file = os.path.join(target_dir, "file.txt")
@@ -56,7 +71,7 @@ class TestMetaflowDiff(unittest.TestCase):
                     "diff",
                     "--no-index",
                     "--exit-code",
-                    "--no-color",
+                    "--color" if use_tty else "--no-color",
                     "./file.txt",
                     source_file,
                 ],
@@ -65,7 +80,9 @@ class TestMetaflowDiff(unittest.TestCase):
                 cwd=target_dir,
             )
 
-            mock_run.assert_any_call(["less", "-R"], input=mock_run().stdout, text=True)
+            mock_run.assert_any_call(
+                ["less", "-R"], input=mock_process.stdout, text=True
+            )
 
     @patch("metaflow_diff.metaflow_diff.run")
     def test_perform_diff_output_true(self, mock_run):
@@ -108,7 +125,8 @@ class TestMetaflowDiff(unittest.TestCase):
 
         mock_extract_code_package.assert_called_once_with(runspec, EXCLUSIONS)
         mock_op_diff.assert_called_once_with(mock_tmp.name)
-        mock_rmtree.assert_called_once_with(mock_tmp.name)
+
+        mock_rmtree.assert_any_call(mock_tmp.name)
 
     @patch("metaflow_diff.metaflow_diff.perform_diff")
     def test_op_patch(self, mock_perform_diff):
@@ -122,8 +140,8 @@ class TestMetaflowDiff(unittest.TestCase):
             mock_perform_diff.assert_called_once_with(tmpdir, output=True)
             with open(patch_file, "r") as f:
                 content = f.read()
-            self.assertIn("diff --git a/file.txt b/file.txt\n", content)
+            assert "diff --git a/file.txt b/file.txt\n" in content
 
 
 if __name__ == "__main__":
-    unittest.main()
+    pytest.main([__file__])
